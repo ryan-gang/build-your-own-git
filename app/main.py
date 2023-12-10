@@ -33,7 +33,7 @@ def create_repo():
     print(f"Initialized empty Git repository.")
 
 
-def read_blob(blob_sha: str) -> str:
+def read_object(blob_sha: str) -> bytes:
     """
     Retrieves the contents of a git blob object given its SHA-1 hash.
     Decompresses it, decodes it and returns an utf-8 encoded string.
@@ -41,8 +41,8 @@ def read_blob(blob_sha: str) -> str:
     full_path = object_path(blob_sha)
     with open(full_path, "rb") as blob:
         data = zlib.decompress(blob.read())
-        text = data.decode(encoding="utf-8")
-        return text
+
+    return data
 
 
 def create_blob(content: bytes) -> str:
@@ -68,7 +68,10 @@ def cat_file(option: str, sha: str):
     the options passed through CLI.
     """
     if option == "-p":
-        _, content = read_blob(sha).split("\x00")
+        data = read_object(sha)
+        text = data.decode(encoding="utf-8")
+        _, content = text.split("\x00")
+        # metadata and contents are seperated by the null byte.
         print(content, end="")
 
 
@@ -80,9 +83,38 @@ def hash_object(option: str, path: str):
     if option == "-w":
         with open(path, "rb") as f:
             content = f.read()
-            print(content)
             sha = create_blob(content)
-            print(sha)
+        print(sha)
+
+
+def ls_tree(option: str, sha: str):
+    """
+    Reads tree object with given SHA-1, and returns list of (mode, path, sha1) tuples.
+    Or a list of paths if --name-only option is passed.
+    """
+    data, start = read_object(sha), 0
+    metadata, _, content = data.partition(b"\x00")
+    object_type, length = metadata.decode().split()
+    assert object_type == "tree", "Object is not of tree type"
+    assert int(length) == len(
+        content
+    ), "Expected length doesn't match with actual length"
+    entries: list[list[str]] = []
+    for _ in range(
+        (int(length) // 20) + 1
+    ):  # Only taking into consideration sha digest length
+        end = content.find(b"\x00", start)
+        if end == -1:
+            break
+        mode, path = content[start:end].decode().split()
+        sha_digest = content[end + 1 : end + 21]
+        entry = [mode, path, sha_digest.hex()]  # Actual ls-tree output
+        if option == "--name-only":
+            entry = [path]  # --name-only output
+        entries.append(entry)
+        start = end + 1 + 20
+
+    print("\n".join(map("\n".join, sorted(entries))))
 
 
 def main():
@@ -98,6 +130,9 @@ def main():
         case "hash-object":
             assert len(sys.argv) >= 3, "fatal: wrong number of arguments, should be > 3"
             hash_object(option=sys.argv[2], path=sys.argv[3])
+        case "ls-tree":
+            assert len(sys.argv) == 4, "fatal: wrong number of arguments, should be 4"
+            ls_tree(option=sys.argv[2], sha=sys.argv[3])
         case _:
             raise RuntimeError(f"Unknown command #{command}")
 
