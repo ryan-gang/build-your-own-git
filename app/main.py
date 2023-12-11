@@ -1,8 +1,14 @@
 import binascii
+import datetime
 import hashlib
 import os
 import sys
 import zlib
+
+AUTHOR_NAME = "ryan"
+AUTHOR_EMAIL = "ryan-gg@outlook.com"
+COMMITER_NAME = AUTHOR_NAME
+COMMITER_EMAIL = AUTHOR_EMAIL
 
 
 def object_path(sha: str, mkdir: bool = False):
@@ -121,7 +127,7 @@ def ls_tree(option: str, sha: str) -> str:
     return "\n".join(map("\n".join, sorted(entries)))
 
 
-def write_tree(cwd: str) -> str:
+def write_tree(cwd: str = ".") -> str:
     """
     Writes tree object consisting of entire current directory.
     """
@@ -144,6 +150,23 @@ def write_tree(cwd: str) -> str:
     return hash_content(content, write=True, object_type="tree")
 
 
+def commit_tree(tree_sha: str, parent_sha: str, message: str) -> str:
+    timestamp = str(datetime.datetime.now().isoformat())
+
+    lines: list[str] = []
+    lines.append(f"tree {tree_sha}")
+    lines.append(f"parent {parent_sha}")
+    lines.append(f"author {AUTHOR_NAME} <{AUTHOR_EMAIL}> {timestamp}")
+    lines.append(f"commiter {COMMITER_NAME} <{COMMITER_EMAIL}> {timestamp}")
+    lines.append("")
+    lines.append(message)
+    lines.append("")
+
+    data = "\n".join(lines).encode()
+
+    return hash_content(data, write=True, object_type="commit")
+
+
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     # print("Logs from your program will appear here!")
@@ -161,7 +184,14 @@ def main():
             assert len(sys.argv) == 4, "fatal: wrong number of arguments, should be 4"
             print(ls_tree(option=sys.argv[2], sha=sys.argv[3]))
         case "write-tree":
-            print(write_tree(cwd="."))
+            print(write_tree())
+        case "commit-tree":
+            assert len(sys.argv) == 7, "fatal: wrong number of arguments, should be 7"
+            print(
+                commit_tree(
+                    tree_sha=sys.argv[2], parent_sha=sys.argv[4], message=sys.argv[6]
+                )
+            )
         case _:
             raise RuntimeError(f"Unknown command received: {command}")
 
