@@ -1,3 +1,4 @@
+import binascii
 import hashlib
 import os
 import sys
@@ -45,19 +46,20 @@ def read_object(blob_sha: str) -> bytes:
     return data
 
 
-def create_blob(content: bytes) -> str:
+def hash_content(content: bytes, write: bool = False, object_type: str = "blob") -> str:
     """
-    Creates a blob object from the given bytes content, writes it to the object
+    Creates a object from the given bytes content, writes it to the object
     path based on SHA-1 hash and returns the SHA-1 hash.
     """
-    object_type = "blob"
+    assert content, "No content received for hashing."
     headers = object_type.encode() + b" " + str(len(content)).encode() + b"\x00"
     data = headers + content
     sha = hashlib.sha1(data).hexdigest()
 
-    full_path = object_path(sha, mkdir=True)
-    with open(full_path, "wb") as fhand:
-        fhand.write(zlib.compress(data))
+    if write:
+        full_path = object_path(sha, mkdir=True)
+        with open(full_path, "wb") as fhand:
+            fhand.write(zlib.compress(data))
 
     return sha
 
@@ -75,19 +77,21 @@ def cat_file(option: str, sha: str):
         print(content, end="")
 
 
-def hash_object(option: str, path: str):
+def hash_object(option: str, path: str) -> str:
     """
     Creates a binary blob from the given data, writes it out to disk, and
-    prints the SHA-1 hash.
+    returns the SHA-1 hash.
     """
+    write_flag = False
     if option == "-w":
-        with open(path, "rb") as f:
-            content = f.read()
-            sha = create_blob(content)
-        print(sha)
+        write_flag = True
+    with open(path, "rb") as f:
+        content = f.read()
+        sha = hash_content(content, write=write_flag)
+    return sha
 
 
-def ls_tree(option: str, sha: str):
+def ls_tree(option: str, sha: str) -> str:
     """
     Reads tree object with given SHA-1, and returns list of (mode, path, sha1) tuples.
     Or a list of paths if --name-only option is passed.
@@ -114,7 +118,30 @@ def ls_tree(option: str, sha: str):
         entries.append(entry)
         start = end + 1 + 20
 
-    print("\n".join(map("\n".join, sorted(entries))))
+    return "\n".join(map("\n".join, sorted(entries)))
+
+
+def write_tree(cwd: str) -> str:
+    """
+    Writes tree object consisting of entire current directory.
+    """
+    files = os.listdir(cwd)
+    if ".git" in files:
+        files.remove(".git")
+    content = b""
+    for file in sorted(files):
+        path = os.path.join(cwd, file)
+        if os.path.isdir(path):  # isdirectory
+            mode = b"40000"
+            sha = write_tree(path)
+        else:  # isfile
+            mode = oct(os.stat(path).st_mode)[-6:].encode()
+            sha = hash_object("", path)
+
+        bin_sha = binascii.unhexlify(sha)
+        content += mode + b" " + file.encode() + b"\x00" + bin_sha
+
+    return hash_content(content, write=True, object_type="tree")
 
 
 def main():
@@ -129,12 +156,14 @@ def main():
             cat_file(option=sys.argv[2], sha=sys.argv[3])
         case "hash-object":
             assert len(sys.argv) >= 3, "fatal: wrong number of arguments, should be > 3"
-            hash_object(option=sys.argv[2], path=sys.argv[3])
+            print(hash_object(option=sys.argv[2], path=sys.argv[3]))
         case "ls-tree":
             assert len(sys.argv) == 4, "fatal: wrong number of arguments, should be 4"
-            ls_tree(option=sys.argv[2], sha=sys.argv[3])
+            print(ls_tree(option=sys.argv[2], sha=sys.argv[3]))
+        case "write-tree":
+            print(write_tree(cwd="."))
         case _:
-            raise RuntimeError(f"Unknown command #{command}")
+            raise RuntimeError(f"Unknown command received: {command}")
 
 
 if __name__ == "__main__":
