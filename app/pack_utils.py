@@ -5,7 +5,8 @@ import urllib.request
 import zlib
 from typing import Optional
 
-from app.git_utils import cat_file, create_repo, hash_content, ls_tree, read_object
+from app.git_utils import (cat_file, create_repo, hash_content, ls_tree,
+                           read_object)
 
 
 def clone(repo_url: str, repo_path: str):
